@@ -1,38 +1,42 @@
-# Сотворение 3D
+# Creation 3D
 
-Сайт, который делает видео в стиле «Сотворения Адама»: две руки указывают на ваше медиа, а оно вращается по центру в 3D с постоянной скоростью.
+A small website that makes "Creation of Adam" style clips: two hands point at your media while it spins in 3D at a constant speed.
 
-## Как пользоваться
+## How to use
 
-1. Нажмите **«Вложить медиа»** или перетащите картинку или видео на сцену.
-2. Медиа появится между руками и станет объёмным.
-3. Скачайте результат кнопками **«Скачать MP4»** (1280×672, 12 с) или **«Скачать GIF»** (640×336, бесшовный цикл).
+1. Click **Attach media** or drop an image or video onto the stage.
+2. The media appears between the hands as a 3D object. Transparent PNG/SVG logos are extruded along their outline; photos and videos become a solid slab.
+3. Pick a quality from **144p** to **4K**. It applies to the preview and to both downloads.
+4. Download the result: **MP4** (about 10 s, with the original soundtrack) or **GIF** (one seamless turn, no sound).
 
-Всё работает прямо в браузере, файлы никуда не загружаются.
+The soundtrack plays in the preview once media is attached; the speaker button in the corner mutes it. An attached video's own sound is not used.
 
-## Публикация на GitHub Pages
+Everything runs in the browser. Files never leave your computer.
 
-1. Создайте на GitHub новый репозиторий (**New repository**), например `creation-3d`.
-2. Нажмите **uploading an existing file** и перетащите в окно **всё содержимое этой папки**: `index.html`, `README.md` и папки `css`, `js`, `assets`. Нажмите **Commit changes**.
-3. Откройте **Settings → Pages**, в **Source** выберите **Deploy from a branch**, ветку `main` и папку `/ (root)`, нажмите **Save**.
-4. Через минуту-две сайт будет доступен по адресу `https://<ваш-логин>.github.io/<имя-репозитория>/`.
+## Publish on GitHub Pages
 
-## Локальный запуск
+1. Create a new repository on GitHub, for example `creation-3d`.
+2. Click **uploading an existing file** and drag in **everything in this folder**: `index.html`, `README.md` and the `assets`, `css` and `js` folders. Click **Commit changes**.
+3. Open **Settings → Pages**, set **Source** to **Deploy from a branch**, pick branch `main` and folder `/ (root)`, then click **Save**.
+4. After a minute or two the site is live at `https://<your-username>.github.io/<repository-name>/`.
 
-Если открыть `index.html` двойным щелчком, сайт не запустится: браузер не загружает скрипты и картинки с диска. Запустите любой локальный сервер в этой папке, например:
+## Run locally
 
-```bash
-npx serve .
-```
+Just double-click `index.html`. The hands (`js/hands.js`) and the soundtrack (`js/sound.js`) are built in, so no server is needed.
 
-## Настройки
+## Settings
 
-В начале файла `js/app.js`:
+At the top of `js/app.js`:
 
-- `PERIOD`: сколько секунд длится один оборот;
-- `MEDIA_SIZE`: размер объекта по центру;
-- `SLICES`: количество слоёв, из которых строится объём.
+- `PERIOD`: seconds per full turn
+- `MEDIA_SIZE`: size of the object in the middle
+- `QUALITIES`: the sizes offered in the quality menu
+- `MP4_FPS`, `GIF_FPS`: frame rates
 
-## Требования
+## Requirements
 
-Chrome или Edge (для экспорта MP4 используется WebCodecs). Нужен интернет: библиотеки three.js, mp4-muxer и gifenc загружаются с CDN.
+Chrome or Edge (MP4 export uses WebCodecs). An internet connection is needed: three.js, mp4-muxer and gifenc load from a CDN.
+
+## Credits
+
+The hands are from Michelangelo's *The Creation of Adam* (public domain).
