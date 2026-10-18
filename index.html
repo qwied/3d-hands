@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сотворение 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<meta name="description" content="Вложите картинку или видео — оно появится между руками и будет вращаться в 3D. Скачивание в MP4 и GIF.">
+</head>
+<body>
+  <header>
+    <h1>Сотворение 3D</h1>
+    <p>Вложите картинку или видео — оно появится между руками и будет вращаться в 3D</p>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="drop-hint">Отпустите, чтобы вложить</div>
+    <div class="busy" id="busy">
+      <div class="label" id="busyLabel">Рендер…</div>
+      <div class="bar"><i id="barFill"></i></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <label class="attach">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      Вложить медиа
+      <input type="file" id="file" accept="image/*,video/*">
+    </label>
+    <div class="downloads" id="downloads">
+      <button class="dl" id="dlMp4"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg>Скачать MP4</button>
+      <button class="dl" id="dlGif"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg>Скачать GIF</button>
+    </div>
+    <div class="note" id="note"></div>
+  </div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
