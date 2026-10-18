@@ -198,7 +198,26 @@ function placeholder() {
 }
 placeholder();
 
+// Animated images (GIF, animated WebP/PNG): frames are decoded up front and
+// drawn into the texture canvas for whatever time is being rendered.
+let anim = null;
+function updateAnim(t) {
+  if (!anim) return;
+  const ms = (t * 1000) % anim.total;
+  let i = anim.frames.findIndex(f => ms < f.start + f.dur);
+  if (i < 0) i = anim.frames.length - 1;
+  if (i === anim.cur) return;
+  anim.cur = i;
+  anim.ctx.clearRect(0, 0, anim.canvas.width, anim.canvas.height);
+  anim.ctx.drawImage(anim.frames[i].bitmap, 0, 0, anim.canvas.width, anim.canvas.height);
+  anim.tex.needsUpdate = true;
+}
+
 function renderAt(t) {
+  updateAnim(t);
+  // Push the current video frame every render instead of waiting for the browser's
+  // frame callback, which some browsers don't fire for off-screen videos.
+  if (mediaVideo && mediaVideo.readyState >= 2) mediaTex.needsUpdate = true;
   const a = (t / PERIOD) * Math.PI * 2;
   pivot.rotation.y = a;
   // Sides catch more light the more they face the camera.
@@ -210,46 +229,283 @@ function renderAt(t) {
 
 const t0 = performance.now();
 (function loop() {
-  if (!exporting) renderAt((performance.now() - t0) / 1000);
+  if (!exporting) {
+    // Browsers may pause a muted background video on their own; keep it running.
+    if (mediaVideo && mediaVideo.paused && !mediaVideo.ended) mediaVideo.play().catch(() => {});
+    renderAt((performance.now() - t0) / 1000);
+  }
   requestAnimationFrame(loop);
 })();
 
 // ---------- Attaching media ----------
 const downloads = document.getElementById('downloads');
 
+// File type from the browser, or guessed from the extension when the browser doesn't know it.
+const EXT_TYPES = {
+  gif: 'image/gif', png: 'image/png', apng: 'image/apng', jpg: 'image/jpeg', jpeg: 'image/jpeg', jfif: 'image/jpeg',
+  webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon', svg: 'image/svg+xml',
+  mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska', ogv: 'video/ogg',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', opus: 'audio/ogg',
+  txt: 'text/plain', md: 'text/markdown', json: 'application/json', csv: 'text/csv', js: 'text/javascript',
+  ts: 'text/plain', py: 'text/plain', html: 'text/html', css: 'text/css', xml: 'text/xml', log: 'text/plain',
+};
+const extOf = name => (name.split('.').pop() || '').toLowerCase();
+
+// Real type from the first bytes — a ".gif" from a chat app is often an MP4 inside, and
+// some systems report no type at all. Falls back to the browser's type, then the extension.
+async function typeOf(file) {
+  const b = new Uint8Array(await file.slice(0, 64).arrayBuffer());
+  const str = (o, n) => String.fromCharCode(...b.slice(o, o + n));
+  if (str(0, 4) === 'GIF8') return 'image/gif';
+  if (b[0] === 0x89 && str(1, 3) === 'PNG') return 'image/png';
+  if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+  if (str(0, 4) === 'RIFF' && str(8, 4) === 'WEBP') return 'image/webp';
+  if (str(0, 4) === 'RIFF' && str(8, 4) === 'AVI ') return 'video/x-msvideo';
+  if (str(0, 4) === 'RIFF' && str(8, 4) === 'WAVE') return 'audio/wav';
+  if (str(4, 4) === 'ftyp') {
+    const brand = str(8, 4);
+    if (brand === 'avif' || brand === 'avis') return 'image/avif';
+    if (brand === 'heic' || brand === 'heix' || brand === 'mif1') return 'image/heic';
+    if (brand.startsWith('M4A')) return 'audio/mp4';
+    return brand === 'qt  ' ? 'video/quicktime' : 'video/mp4';
+  }
+  if (b[0] === 0x1A && b[1] === 0x45 && b[2] === 0xDF && b[3] === 0xA3) return 'video/webm';
+  if (str(0, 4) === 'OggS') return file.type.startsWith('video/') ? 'video/ogg' : 'audio/ogg';
+  if (str(0, 3) === 'ID3' || str(0, 4) === 'fLaC') return 'audio/mpeg';
+  return file.type || EXT_TYPES[extOf(file.name)] || '';
+}
+
+// GIF fallback for browsers without ImageDecoder: parse and composite frames in JS.
+async function decodeGifJs(file) {
+  const { parseGIF, decompressFrames } = await import('https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/+esm');
+  const gif = parseGIF(await file.arrayBuffer());
+  const raw = decompressFrames(gif, true);
+  if (raw.length < 2) return null;
+  const W = gif.lsd.width, H = gif.lsd.height;
+  const full = document.createElement('canvas'); full.width = W; full.height = H;
+  const fg = full.getContext('2d');
+  const patch = document.createElement('canvas'); const pg = patch.getContext('2d');
+  const frames = []; let total = 0;
+  for (const f of raw.slice(0, 1500)) {
+    const { width, height, top, left } = f.dims;
+    patch.width = width; patch.height = height;
+    pg.putImageData(new ImageData(f.patch, width, height), 0, 0);
+    fg.drawImage(patch, left, top);
+    let dur = f.delay || 100;
+    if (dur < 20) dur = 100;
+    frames.push({ bitmap: await createImageBitmap(full), start: total, dur });
+    total += dur;
+    if (f.disposalType === 2) fg.clearRect(left, top, width, height);
+  }
+  return { frames, total };
+}
+
+async function decodeAnimated(file, type) {
+  if (!type.startsWith('image/')) return null;
+  if (typeof ImageDecoder === 'undefined') return type === 'image/gif' ? decodeGifJs(file).catch(() => null) : null;
+  try { if (!(await ImageDecoder.isTypeSupported(type))) return null; } catch { return null; }
+  const dec = new ImageDecoder({ data: await file.arrayBuffer(), type });
+  try {
+    await dec.tracks.ready;
+    const track = dec.tracks.selectedTrack;
+    if (!track || !track.animated) return null;
+    await dec.completed;
+    const count = Math.min(track.frameCount, 1500);
+    if (count < 2) return null;
+    const frames = []; let total = 0;
+    for (let i = 0; i < count; i++) {
+      const { image } = await dec.decode({ frameIndex: i });
+      let dur = image.duration ? image.duration / 1000 : 100;
+      if (dur < 20) dur = 100;   // browsers play near-zero GIF delays at 100 ms
+      frames.push({ bitmap: await createImageBitmap(image), start: total, dur });
+      image.close();
+      total += dur;
+    }
+    return { frames, total };
+  } finally { dec.close(); }
+}
+
+// A tidy card for files that have no picture of their own (documents, archives, audio…).
+function fileCard(file, lines, wave) {
+  const c = document.createElement('canvas');
+  c.width = 1600; c.height = 1200;
+  const g = c.getContext('2d');
+  const r = 70;
+  g.fillStyle = '#121216';
+  g.beginPath(); g.roundRect(0, 0, c.width, c.height, r); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,.14)'; g.lineWidth = 6;
+  g.beginPath(); g.roundRect(3, 3, c.width - 6, c.height - 6, r); g.stroke();
+  const ext = (extOf(file.name) || 'file').slice(0, 6).toUpperCase();
+  g.fillStyle = '#fff'; g.font = '600 64px Inter, system-ui, sans-serif'; g.textBaseline = 'top';
+  g.fillText(ext, 90, 80);
+  g.fillStyle = '#8a8a96'; g.font = '500 44px Inter, system-ui, sans-serif';
+  let name = file.name;
+  while (g.measureText(name).width > c.width - 180 && name.length > 4) name = name.slice(0, -2);
+  if (name !== file.name) name = name.slice(0, -1) + '…';
+  g.fillText(name, 90, 170);
+  const kb = file.size / 1024;
+  g.fillText(kb > 1024 ? (kb / 1024).toFixed(1) + ' MB' : Math.max(1, Math.round(kb)) + ' KB', 90, 230);
+  if (lines) {
+    g.fillStyle = '#d6d6de'; g.font = '36px ui-monospace, Consolas, monospace';
+    lines.slice(0, 18).forEach((l, i) => {
+      let s = l.replace(/\t/g, '  ');
+      while (g.measureText(s).width > c.width - 180 && s.length) s = s.slice(0, -1);
+      g.fillText(s, 90, 340 + i * 46);
+    });
+  } else if (wave) {
+    g.strokeStyle = '#fff'; g.lineWidth = 6; g.lineCap = 'round';
+    const n = 120, mid = 760, w = (c.width - 180) / n;
+    for (let i = 0; i < n; i++) {
+      const h = Math.max(6, wave[i] * 300);
+      g.beginPath(); g.moveTo(90 + i * w + w / 2, mid - h); g.lineTo(90 + i * w + w / 2, mid + h); g.stroke();
+    }
+  } else {
+    // simple document icon
+    g.strokeStyle = '#fff'; g.lineWidth = 16; g.lineJoin = 'round';
+    g.beginPath(); g.moveTo(640, 380); g.lineTo(890, 380); g.lineTo(1010, 500); g.lineTo(1010, 1000); g.lineTo(640, 1000); g.closePath(); g.stroke();
+    g.beginPath(); g.moveTo(890, 380); g.lineTo(890, 500); g.lineTo(1010, 500); g.stroke();
+  }
+  return c;
+}
+
+async function textLines(file) {
+  if (file.size > 2_000_000) return null;
+  const text = await file.text();
+  const bad = (text.slice(0, 4000).match(/[\u0000-\u0008\u000E-\u001F�]/g) || []).length;
+  return bad > 8 ? null : text.split(/\r?\n/);
+}
+
+async function audioWave(file) {
+  try {
+    const buf = await new OfflineAudioContext(1, 1, AUDIO_RATE).decodeAudioData(await file.arrayBuffer());
+    const d = buf.getChannelData(0), n = 120, step = Math.floor(d.length / n) || 1, out = [];
+    let max = 0;
+    for (let i = 0; i < n; i++) { let p = 0; for (let j = i * step; j < (i + 1) * step && j < d.length; j += 16) p = Math.max(p, Math.abs(d[j])); out.push(p); max = Math.max(max, p); }
+    return out.map(v => v / (max || 1));
+  } catch { return null; }
+}
+
+function loadImage(url) {
+  const img = new Image();
+  img.src = url;
+  return img.decode().then(() => img);
+}
+
+function loadVideo(url) {
+  const v = document.createElement('video');
+  v.loop = true; v.playsInline = true; v.muted = true;   // the soundtrack plays instead
+  v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
+  // Kept in the page (tiny, practically invisible): browsers pause muted videos that aren't on the page.
+  v.className = 'media-src';
+  document.body.appendChild(v);
+  v.src = url;
+  return new Promise((res, rej) => {
+    const fail = err => { clearTimeout(timer); v.remove(); rej(err); };
+    const timer = setTimeout(() => fail(new Error('timeout')), 10000);
+    v.onloadeddata = () => { clearTimeout(timer); v.videoWidth ? res(v) : fail(new Error('no picture')); };
+    v.onerror = () => fail(new Error('video'));
+  });
+}
+
+function videoTexture(v) {
+  const tex = new THREE.Texture(v);
+  tex.minFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  return tex;
+}
+
+function clearMedia() {
+  if (mediaVideo) { mediaVideo.pause(); mediaVideo.removeAttribute('src'); mediaVideo.load(); mediaVideo.remove(); mediaVideo = null; }
+  if (anim) { for (const f of anim.frames) f.bitmap.close(); anim = null; }
+}
+
+let attachId = 0;
 async function attach(file) {
   if (!file) return;
-  const isVideo = file.type.startsWith('video/');
-  const isImage = file.type.startsWith('image/');
-  if (!isVideo && !isImage) { note.textContent = 'Please choose an image or a video.'; return; }
-  if (mediaVideo) { mediaVideo.pause(); mediaVideo.removeAttribute('src'); mediaVideo.load(); mediaVideo = null; }
-  if (mediaUrl) URL.revokeObjectURL(mediaUrl);
-  mediaUrl = URL.createObjectURL(file);
+  const id = ++attachId;
+  const url = URL.createObjectURL(file);
   note.textContent = '';
+  stage.classList.add('loading');
+  let pendingVideo = null;
   try {
-    if (isImage) {
-      const img = new Image();
-      img.src = mediaUrl;
-      await img.decode();
-      const canvas = rasterise(img, file.type.includes('svg'));
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.minFilter = THREE.LinearMipmapLinearFilter;
-      buildMedia(tex, canvas.width / canvas.height, hasTransparency(canvas));
-    } else {
-      // The clip's own sound is not used — the soundtrack plays instead.
-      const v = document.createElement('video');
-      v.src = mediaUrl; v.loop = true; v.playsInline = true; v.muted = true;
-      await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = rej; });
-      await v.play().catch(() => {});
+    const type = await typeOf(file);
+    let built = null;   // () => void, applied only if this is still the latest attach
+    const useVideo = v => () => {
       mediaVideo = v;
-      buildMedia(new THREE.VideoTexture(v), v.videoWidth / v.videoHeight, false);
+      v.play().catch(() => {});
+      buildMedia(videoTexture(v), v.videoWidth / v.videoHeight, false);
+    };
+
+    // 1. video — first whenever the bytes say it's a video, whatever the file is called
+    if (type.startsWith('video/')) {
+      pendingVideo = await loadVideo(url).catch(() => null);
+      if (pendingVideo) built = useVideo(pendingVideo);
     }
+    // 2. animated image (GIF, animated WebP/PNG/AVIF) — plays like a video, solid block like a video
+    if (!built) {
+      const a = await decodeAnimated(file, type).catch(() => null);
+      if (a) {
+        const f0 = a.frames[0].bitmap;
+        const s = Math.min(1, maxTex / Math.max(f0.width, f0.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(f0.width * s); canvas.height = Math.round(f0.height * s);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(f0, 0, 0, canvas.width, canvas.height);
+        built = () => {
+          const tex = new THREE.CanvasTexture(canvas);
+          tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+          buildMedia(tex, canvas.width / canvas.height, false);
+          anim = { ...a, canvas, ctx, tex, cur: 0 };
+        };
+      }
+    }
+    // 3. still image
+    if (!built && !type.startsWith('video/') && !type.startsWith('audio/')) {
+      const img = await loadImage(url).catch(() => null);
+      if (img) {
+        const canvas = rasterise(img, type.includes('svg'));
+        built = () => {
+          const tex = new THREE.CanvasTexture(canvas);
+          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          buildMedia(tex, canvas.width / canvas.height, hasTransparency(canvas));
+        };
+      }
+    }
+    // 4. last try as a video (unknown or mislabelled files)
+    if (!built && !type.startsWith('video/') && !type.startsWith('text/') && !type.startsWith('audio/')) {
+      pendingVideo = await loadVideo(url).catch(() => null);
+      if (pendingVideo) built = useVideo(pendingVideo);
+    }
+    // 5. anything else: a card with the file's name, text preview or waveform
+    if (!built) {
+      const lines = type.startsWith('audio/') ? null : await textLines(file).catch(() => null);
+      const wave = lines ? null : await audioWave(file);
+      const canvas = fileCard(file, lines, wave);
+      built = () => {
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        buildMedia(tex, canvas.width / canvas.height, true);
+      };
+    }
+
+    if (id !== attachId) {   // a newer file was attached meanwhile
+      if (pendingVideo) pendingVideo.remove();
+      URL.revokeObjectURL(url);
+      return;
+    }
+    clearMedia();
+    if (mediaUrl) URL.revokeObjectURL(mediaUrl);
+    mediaUrl = url;
+    built();
     downloads.classList.add('on');
     soundBtn.hidden = false;
     syncSound();
   } catch (e) {
     console.error(e);
-    note.textContent = 'This file could not be opened.';
+    if (id === attachId) note.textContent = 'This file could not be opened.';
+  } finally {
+    if (id === attachId) stage.classList.remove('loading');
   }
 }
 
@@ -384,7 +640,7 @@ btnMp4.addEventListener('click', () => runExport('Rendering MP4…', async progr
   await enc.flush();
   if (encErr) throw encErr;
   muxer.finalize();
-  save(new Blob([muxer.target.buffer], { type: 'video/mp4' }), `creation-3d-${qualityName(H)}.mp4`);
+  save(new Blob([muxer.target.buffer], { type: 'video/mp4' }), `3d-hands-${qualityName(H)}.mp4`);
 }));
 
 btnGif.addEventListener('click', () => runExport(`Rendering GIF · ${qualityName(quality)}…`, async progress => {
@@ -407,6 +663,6 @@ btnGif.addEventListener('click', () => runExport(`Rendering GIF · ${qualityName
     await tick();
   }
   gif.finish();
-  save(new Blob([gif.bytes()], { type: 'image/gif' }), `creation-3d-${qualityName(quality)}.gif`);
+  save(new Blob([gif.bytes()], { type: 'image/gif' }), `3d-hands-${qualityName(quality)}.gif`);
 }));
 })();

@@ -118,3 +118,18 @@ header p { margin: 0; color: var(--muted); font-size: 15px; }
 .downloads.on { display: flex; }
 .note { color: var(--muted); font-size: 13px; text-align: center; min-height: 1em; }
 input[type=file] { display: none; }
+
+.stage.loading::after {
+  content: 'Loading…';
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+  font-size: 13px; color: var(--muted); letter-spacing: .02em;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: .35; } }
+
+/* source video for the 3D texture: kept on the page so browsers don't pause it */
+.media-src {
+  position: fixed; left: 0; bottom: 0;
+  width: 2px; height: 2px;
+  opacity: .01; pointer-events: none;
+}

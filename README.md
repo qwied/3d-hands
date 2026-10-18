@@ -1,11 +1,14 @@
-# Creation 3D
+# 3D-HANDS
 
 A small website that makes "Creation of Adam" style clips: two hands point at your media while it spins in 3D at a constant speed.
 
 ## How to use
 
-1. Click **Attach media** or drop an image or video onto the stage.
-2. The media appears between the hands as a 3D object. Transparent PNG/SVG logos are extruded along their outline; photos and videos become a solid slab.
+1. Click **Attach media** or drop any file onto the stage.
+2. It appears between the hands as a 3D object:
+   - images (PNG, JPG, WebP, AVIF, SVG…): transparent logos are extruded along their outline, photos become a solid slab;
+   - animated GIF / WebP / PNG and videos keep playing while they spin;
+   - any other file becomes a card: text and code files show their first lines, audio files a waveform, everything else a file icon with its name and size.
 3. Pick a quality from **144p** to **4K**. It applies to the preview and to both downloads.
 4. Download the result: **MP4** (about 10 s, with the original soundtrack) or **GIF** (one seamless turn, no sound).
 
@@ -15,7 +18,7 @@ Everything runs in the browser. Files never leave your computer.
 
 ## Publish on GitHub Pages
 
-1. Create a new repository on GitHub, for example `creation-3d`.
+1. Create a new repository on GitHub, for example `3d-hands`.
 2. Click **uploading an existing file** and drag in **everything in this folder**: `index.html`, `README.md` and the `assets`, `css` and `js` folders. Click **Commit changes**.
 3. Open **Settings → Pages**, set **Source** to **Deploy from a branch**, pick branch `main` and folder `/ (root)`, then click **Save**.
 4. After a minute or two the site is live at `https://<your-username>.github.io/<repository-name>/`.
